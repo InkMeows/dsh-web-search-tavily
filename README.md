@@ -25,7 +25,7 @@ model-facing `web_search` schema, no harness source changes.
 # build & pack
 bash scripts/build.sh && npm pack
 # install into the web profile (junction + bundles entry + live mount)
-dsh install-package D:/collection_of_projects/dsh/dsh-web-search-tavily web
+dsh install-package <path-to-dsh-web-search-tavily> web
 ```
 
 Then switch the seam to the Tavily provider — profile patch layer
