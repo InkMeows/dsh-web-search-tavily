@@ -1,0 +1,2 @@
+* text=auto eol=lf
+scripts/build.sh text eol=lf

@@ -1,0 +1,7 @@
+# dsh-web-search-tavily bundle patch: declares its own loader row so the
+# provider mounts whenever this package is part of a profile's bundles.
+# The searchProvider flip itself is a deployment decision and lives in the
+# PROFILE layer (override the `web` row), not here.
+- insert:
+    - id: web-search-tavily
+      name: '@dsh-external/dsh-web-search-tavily'
