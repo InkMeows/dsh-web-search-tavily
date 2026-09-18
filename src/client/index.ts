@@ -34,6 +34,8 @@ interface ScopeSnapshot<T> {
   status: 'loading' | 'ready' | 'unavailable'
   value: T | undefined
   writable: boolean
+  /** Raw user layer; a present field marks a user override. */
+  user?: T | undefined
 }
 
 /** The bound settings scope's public face (contract-shaped). */
@@ -64,16 +66,17 @@ interface CardStore<T> extends SnapshotStoreLike<T> {
   set(next: T): void
 }
 
-/** The connection face used for the credential the section references. */
-interface ConnectionLike {
-  api: {
-    credentials: {
-      describe(args: { refs: string[] }): Promise<{
-        result: { ok: boolean; value: { credentials: Record<string, { configured: boolean; writable: boolean } | undefined> } }
-      }>
-      set(args: { ref: string; value: string }): Promise<{ result: { ok: boolean } }>
-    }
-  }
+/** One Remote call's result, as the generated client face resolves it. */
+type RemoteResultLike<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly error: unknown }
+
+/** The credentials remote namespace the section's key reference is addressed on. */
+interface CredentialsRemoteLike {
+  describe(refs: string[]): Promise<
+    RemoteResultLike<Record<string, { configured?: boolean; writable?: boolean } | undefined>>
+  >
+  set(ref: string, value: string): Promise<RemoteResultLike<unknown>>
 }
 
 /** Structural client context (duck-typed; the runtime's real face is wider). */
@@ -93,7 +96,9 @@ interface ClientContextLike {
   settingsScope: {
     bind<T>(spec: { namespace: string }): SettingsScopeLike<T>
   }
-  get(key: string): unknown
+  remote: {
+    credentials: CredentialsRemoteLike
+  }
 }
 
 /** One staged text/number field. */
@@ -499,7 +504,7 @@ class TavilyCardController {
 
   constructor(
     private readonly scope: SettingsScopeLike<TavilySettings>,
-    private readonly api: ConnectionLike['api'],
+    private readonly credentials: CredentialsRemoteLike,
   ) {
     this.store = this.makeStore()
     this.publish()
@@ -605,7 +610,7 @@ class TavilyCardController {
       if (key === 'apiKey') {
         const value = this.stage.apiKey ?? ''
         if (value.length > 0) {
-          writes.push(this.api.credentials.set({ ref: this.ref(), value }).catch(() => undefined))
+          writes.push(this.credentials.set(this.ref(), value).catch(() => undefined))
         }
         continue
       }
@@ -653,9 +658,9 @@ class TavilyCardController {
   /** Ask the credentials domain about the reference the section currently names. */
   private async readCredential(): Promise<void> {
     try {
-      const response = await this.api.credentials.describe({ refs: [this.ref()] })
-      if (!response.result.ok) return
-      const view = response.result.value.credentials[this.ref()]
+      const response = await this.credentials.describe([this.ref()])
+      if (!response.ok) return
+      const view = response.value[this.ref()]
       const next = {
         configured: view?.configured ?? false,
         writable: view?.writable ?? true,
@@ -694,7 +699,7 @@ function renderField(key: keyof TavilySettings, value: TavilySettings | undefine
 
 /** Whether the user layer overrides one field (presence marks an override). */
 function isOverridden(key: keyof TavilySettings, snap: ScopeSnapshot<TavilySettings>): boolean {
-  const user = snap.value
+  const user = snap.user
   if (user === undefined) return false
   return user[key] !== undefined && key !== 'apiKeyEnv'
 }
@@ -708,12 +713,11 @@ function parseNumber(raw: string): number | undefined {
 
 // ------------------------------------------------------------------- apply ---
 
-export const inject = ['slots', 'settingsScope', 'connection']
+export const inject = ['slots', 'settingsScope', 'remote', 'remote.credentials']
 
 export function apply(ctx: ClientContextLike): void {
   const scope = ctx.settingsScope.bind<TavilySettings>({ namespace: NS })
-  const connection = ctx.get('connection') as ConnectionLike
-  const controller = new TavilyCardController(scope, connection.api)
+  const controller = new TavilyCardController(scope, ctx.remote.credentials)
   ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
     name: 'settings.plugin.item',
     key: NS,
